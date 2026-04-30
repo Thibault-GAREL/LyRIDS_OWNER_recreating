@@ -10,7 +10,7 @@
 ![Contributions](https://img.shields.io/badge/contributions-welcome-orange.svg)
 
 <p align="center">
-  <img src="assets/logo.webp" alt="LyRIDS OWNER Logo" width="200">
+  <img src="assets/logo.webp" alt="LyRIDS OWNER Logo" width="600">
 </p>
 
 ---
