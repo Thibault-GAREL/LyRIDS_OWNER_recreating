@@ -1,0 +1,55 @@
+# MLflow
+mlruns/
+mlartifacts/
+
+# Données : on ignore le contenu, on garde la structure via .gitkeep
+# Exception : les scripts .py à la racine de chaque dossier data/ (download/preprocess)
+data/1-raw/*
+data/2-processed/*
+data/3-external/*
+!data/1-raw/.gitkeep
+!data/2-processed/.gitkeep
+!data/3-external/.gitkeep
+!data/1-raw/*.py
+!data/2-processed/*.py
+!data/3-external/*.py
+
+# Outputs : idem (pas d'exception .py ici, on n'y met pas de scripts)
+outputs/models/*
+outputs/logs/*
+outputs/results/*
+!outputs/models/.gitkeep
+!outputs/logs/.gitkeep
+!outputs/results/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+.history/
+
+# Tests / type-checkers
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
