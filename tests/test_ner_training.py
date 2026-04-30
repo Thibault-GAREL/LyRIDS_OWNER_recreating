@@ -41,3 +41,6 @@ metrics = ner.evaluate()
 print("\n========== NER end-to-end ==========")
 print(f'AMI={metrics["ami"]:.4f}  ARI={metrics["ari"]:.4f}')
 print(f'n_truth={metrics["n_truth"]}  n_pred_md={metrics["n_pred"]}')
+
+ner.save_model('outputs/models/ner_checkpoint')
+print("\n✓ Modèles sauvegardés dans outputs/models/ner_checkpoint/")

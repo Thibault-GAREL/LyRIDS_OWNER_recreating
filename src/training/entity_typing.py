@@ -77,7 +77,7 @@ class EntityTypingTrainer(BaseTrainer):
         k_max: int = 30,
         k_step: int = 2,
         seed: int = 42,
-        template: str = "{sentence} {entity} is a [MASK].",
+        template: str = "{entity} is a [MASK]. Context: {sentence}",
         device: str | None = None,
     ):
         self.train_path = train_path

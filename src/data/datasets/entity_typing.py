@@ -39,7 +39,9 @@ class EntityTypingDataset(TorchDataset):
         dataset: Dataset,
         tokenizer_name: str,
         max_len: int = 256,
-        template: str = "{sentence} {entity} is a [MASK].",
+        # [MASK] placé EN DÉBUT pour qu'il survive à la troncature même sur
+        # les phrases très longues (cf. dataset CoNLL avec listes de noms).
+        template: str = "{entity} is a [MASK]. Context: {sentence}",
     ):
         super().__init__()
         self.dataset = dataset
@@ -63,8 +65,12 @@ class EntityTypingDataset(TorchDataset):
             i: t for t, i in self.entity_type_to_id.items()
         }
 
-        # Aplatir : 1 entité = 1 row
+        # Aplatir : 1 entité = 1 row, en filtrant les prompts où [MASK] serait
+        # tronqué (cas rare avec template "[MASK] en début" mais possible si
+        # l'entité elle-même est très longue).
         self.rows: list[dict] = []
+        n_skipped = 0
+
         for doc_idx, document in enumerate(dataset.documents):
             for entity in document.entities:
                 sentence = document.sentences[entity.sentence_idx]
@@ -73,6 +79,15 @@ class EntityTypingDataset(TorchDataset):
                     sentence=' '.join(sentence),
                     entity=entity_text,
                 )
+
+                # Vérifier que [MASK] survit à la troncature
+                check_ids = self.tokenizer(
+                    prompt, max_length=self.max_len, truncation=True,
+                )['input_ids']
+                if self.mask_token_id not in check_ids:
+                    n_skipped += 1
+                    continue
+
                 self.rows.append({
                     'document_idx': doc_idx,
                     'sentence_idx': entity.sentence_idx,
@@ -81,6 +96,12 @@ class EntityTypingDataset(TorchDataset):
                     'entity_type': entity.type,
                     'prompt': prompt,
                 })
+
+        if n_skipped > 0:
+            print(
+                f'  [EntityTypingDataset] {n_skipped} entité(s) skippée(s) '
+                f'(prompt trop long même avec [MASK] en début, max_len={max_len})'
+            )
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -99,13 +120,12 @@ class EntityTypingDataset(TorchDataset):
         input_ids = encoded['input_ids'].view(-1)        # [max_len]
         attention_mask = encoded['attention_mask'].view(-1)
 
-        # Position du token [MASK]
+        # Position du token [MASK] (garanti présent grâce au filtrage en __init__)
         mask_positions = (input_ids == self.mask_token_id).nonzero().flatten()
-        if len(mask_positions) == 0:
-            raise ValueError(
-                f"Pas de [MASK] trouvé dans la séquence (sans doute tronquée). "
-                f"Augmente max_len. Prompt : {row['prompt'][:120]}..."
-            )
+        assert len(mask_positions) > 0, (
+            "Bug : [MASK] introuvable malgré le filtrage. Prompt : "
+            f"{row['prompt'][:120]}..."
+        )
         mask_index = int(mask_positions[0].item())
 
         return {
