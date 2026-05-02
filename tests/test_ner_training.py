@@ -4,6 +4,8 @@ Hyperparams adaptés à un GPU ~6 Go VRAM (GTX 1660 Ti).
 Si CUDA out of memory, baisse batch_size à 4 ou 2.
 """
 
+# python -m tests.test_ner_training
+
 from src.training.mention_detection import MentionDetectionTrainer
 from src.training.entity_typing import EntityTypingTrainer
 from src.training.ner import NerTrainer
