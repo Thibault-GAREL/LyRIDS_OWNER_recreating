@@ -1,0 +1,32 @@
+# Configuration par défaut du pipeline NER OWNER (CoNLL-2003 noMISC).
+# Hyperparams adaptés à un GPU ~6 Go VRAM (GTX 1660 Ti Max-Q).
+# Si CUDA out of memory : baisse batch_size à 4 ou 2.
+
+data:
+  train_path: data/2-processed/conll2003_noMISC/train.json
+  test_path: data/2-processed/conll2003_noMISC/test.json
+
+mention_detection:
+  plm_name: distilbert-base-uncased   # ~250 Mo, OK pour 6 Go VRAM
+  max_len: 128
+  batch_size: 8
+  num_epochs: 2                       # 2 epochs suffisent sur 14k phrases
+  learning_rate: 2.0e-5
+
+entity_typing:
+  plm_name: bert-base-uncased         # ~440 Mo, BERT a un [MASK]
+  max_len: 128
+  batch_size: 8
+  num_epochs: 2
+  learning_rate: 2.0e-5
+  margin: 1.0
+  k_min: 2
+  k_max: 10                           # vrai k = 3 (loc/org/per), on cherche dans [2, 10]
+  k_step: 1
+  seed: 42
+  template: "{entity} is a [MASK]. Context: {sentence}"
+
+output:
+  checkpoint_dir: outputs/models/ner_checkpoint
+  mlflow_experiment: owner_ner
+  mlflow_run_name: owner_ner_full

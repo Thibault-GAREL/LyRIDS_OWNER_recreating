@@ -1,48 +1,50 @@
 """Test pipeline NER end-to-end (Phase 5 A) sur le vrai CoNLL-2003 noMISC.
 
+La config est lue depuis configs/ner_default.yaml.
 Hyperparams adaptés à un GPU ~6 Go VRAM (GTX 1660 Ti).
-Si CUDA out of memory, baisse batch_size à 4 ou 2.
+Si CUDA out of memory, baisse batch_size dans le YAML.
 """
 
 # python -m tests.test_ner_training
+# python -m tests.test_ner_training configs/ner_default.yaml
+
+import sys
+
+import mlflow
 
 from src.training.mention_detection import MentionDetectionTrainer
 from src.training.entity_typing import EntityTypingTrainer
 from src.training.ner import NerTrainer
+from src.utils.config import flatten_for_mlflow, load_config
+
+config_path = sys.argv[1] if len(sys.argv) > 1 else 'configs/ner_default.yaml'
+config = load_config(config_path)
 
 md = MentionDetectionTrainer(
-    train_path="data/2-processed/conll2003_noMISC/train.json",
-    test_path="data/2-processed/conll2003_noMISC/test.json",
-    plm_name="distilbert-base-uncased",   # ~250 Mo, OK pour 6 Go VRAM
-    max_len=128,
-    batch_size=8,
-    num_epochs=2,                          # 2 epochs suffisent sur 14k phrases
-    learning_rate=2e-5,
+    train_path=config['data']['train_path'],
+    test_path=config['data']['test_path'],
+    **config['mention_detection'],
 )
 
 et = EntityTypingTrainer(
-    train_path="data/2-processed/conll2003_noMISC/train.json",
-    test_path="data/2-processed/conll2003_noMISC/test.json",
-    plm_name="bert-base-uncased",          # ~440 Mo, BERT a un [MASK]
-    max_len=128,
-    batch_size=8,
-    num_epochs=2,
-    learning_rate=2e-5,
-    margin=1.0,
-    k_min=2,
-    k_max=10,                              # vrai k = 3 (loc/org/per), on cherche dans [2, 10]
-    k_step=1,
-    seed=42,
+    train_path=config['data']['train_path'],
+    test_path=config['data']['test_path'],
+    **config['entity_typing'],
 )
 
-ner = NerTrainer(md, et)
-ner.load_data(training=True)
-ner.train()
+mlflow.set_experiment(config['output']['mlflow_experiment'])
+with mlflow.start_run(run_name=config['output']['mlflow_run_name']):
+    mlflow.log_params(flatten_for_mlflow(config))
+    mlflow.log_artifact(config_path)
 
-metrics = ner.evaluate()
-print("\n========== NER end-to-end ==========")
-print(f'AMI={metrics["ami"]:.4f}  ARI={metrics["ari"]:.4f}')
-print(f'n_truth={metrics["n_truth"]}  n_pred_md={metrics["n_pred"]}')
+    ner = NerTrainer(md, et)
+    ner.load_data(training=True)
+    ner.train()
 
-ner.save_model('outputs/models/ner_checkpoint')
-print("\n✓ Modèles sauvegardés dans outputs/models/ner_checkpoint/")
+    metrics = ner.evaluate()
+    print("\n========== NER end-to-end ==========")
+    print(f'AMI={metrics["ami"]:.4f}  ARI={metrics["ari"]:.4f}')
+    print(f'n_truth={metrics["n_truth"]}  n_pred_md={metrics["n_pred"]}')
+
+    ner.save_model(config['output']['checkpoint_dir'])
+    print(f"\n✓ Modèles sauvegardés dans {config['output']['checkpoint_dir']}/")

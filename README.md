@@ -37,6 +37,10 @@ This is a learning project where I rebuild and refine the OWNER pipeline from sc
 
   🎯 **End-to-end evaluation**: AMI and ARI metrics to compare predicted vs. ground-truth entity types
 
+  🧪 **MLflow tracking**: hyperparams, per-epoch metrics, and model checkpoints are logged automatically (parent run + nested MD/ET sub-runs)
+
+  ⚙️ **YAML-driven config**: all hyperparams live in `configs/ner_default.yaml` — change a value, no code edit needed
+
 ---
 
 ## ⚙️ How it works
@@ -77,9 +81,17 @@ LyRIDS_OWNER/
 │   │   ├── mention_detection.py      # MentionDetectionTrainer
 │   │   └── ner.py                    # NerTrainer (end-to-end orchestration)
 │   │
-│   └── evaluation/
-│       ├── base.py                   # Entity alignment & merging utilities
-│       └── entity_typing.py          # AMI / ARI computation
+│   ├── evaluation/
+│   │   ├── base.py                   # Entity alignment & merging utilities
+│   │   └── entity_typing.py          # AMI / ARI computation
+│   │
+│   └── utils/
+│       ├── config.py                 # YAML config loader + flattener for MLflow
+│       ├── mlflow_helpers.py         # Nested-run helper + safe log functions
+│       └── pytorch.py                # PyTorch utilities (IGNORE_VALUE, etc.)
+│
+├── configs/
+│   └── ner_default.yaml              # Default hyperparams for the NER pipeline
 │
 ├── tests/
 │   └── test_ner_training.py          # Full pipeline: train MD → ET → evaluate → save
@@ -97,8 +109,10 @@ LyRIDS_OWNER/
 │
 ├── outputs/
 │   ├── models/                       # Trained model checkpoints
-│   ├── logs/                         # Training logs (MLflow, future)
+│   ├── logs/                         # Training logs (kept for backward-compat)
 │   └── results/                      # Evaluation metrics
+│
+├── mlruns/                           # MLflow runs (auto-created, git-ignored)
 │
 ├── assets/
 │   └── logo.webp                     # Project logo for README
@@ -128,7 +142,7 @@ source .venv/bin/activate   # Linux / macOS
 ### Install dependencies
 
 ```bash
-pip install torch==2.5.1+cu121 transformers==4.36.2 scikit-learn pandas torch-linalg tqdm
+pip install torch==2.5.1+cu121 transformers==4.36.2 scikit-learn pandas torch-linalg tqdm mlflow pyyaml
 ```
 
 ⚠️ You need a **CUDA-compatible GPU** (~6 GB VRAM minimum, tested on GTX 1660 Ti Max-Q).
@@ -145,7 +159,11 @@ cd ../..
 ### Train the full NER pipeline
 
 ```bash
+# Uses configs/ner_default.yaml by default
 python -m tests.test_ner_training
+
+# Or pass a custom YAML config
+python -m tests.test_ner_training configs/my_experiment.yaml
 ```
 
 This will:
@@ -153,10 +171,20 @@ This will:
 2. Train **Entity Typing** with Triplet Loss (2 epochs, ~15 min)
 3. Evaluate end-to-end on the test set (print AMI, ARI, entity counts)
 4. Save both models to `outputs/models/ner_checkpoint/`
+5. Log everything (params, metrics, checkpoints, the YAML itself) to MLflow
+
+### Inspect MLflow runs
+
+```bash
+# Launch the MLflow UI (default: http://localhost:5000)
+mlflow ui
+```
+
+Each pipeline run creates a parent run `owner_ner_full` with two nested sub-runs (`mention_detection`, `entity_typing`) so you can compare experiments at any granularity.
 
 ---
 
-⚠️ **Status**: This project is **work in progress**. Phase 5A (basic training + saving) is complete. Phases 5C–5E (MLflow, config centralization, polish) are in progress.
+⚠️ **Status**: Phases 5A (basic training + saving), 5C (MLflow tracking), 5D (config centralization) are complete. Phase 5E (polish, additional experiments) is ongoing.
 
 ---
 

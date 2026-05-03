@@ -11,6 +11,7 @@ from ..evaluation.base import (
     merge_dataset_with_predictions,
 )
 from ..evaluation.entity_typing import evaluate_entity_typing
+from ..utils.mlflow_helpers import log_metrics_safe
 from .base import BaseTrainer
 from .mention_detection import MentionDetectionTrainer
 from .entity_typing import EntityTypingTrainer
@@ -69,6 +70,12 @@ class NerTrainer(BaseTrainer):
         )
         metrics['n_truth'] = n_truth
         metrics['n_pred'] = n_pred_md
+        log_metrics_safe({
+            'ner_end_to_end_ami': metrics['ami'],
+            'ner_end_to_end_ari': metrics['ari'],
+            'ner_n_truth_entities': n_truth,
+            'ner_n_pred_entities': n_pred_md,
+        })
         return metrics
 
     def save_model(self, folder: str) -> None:

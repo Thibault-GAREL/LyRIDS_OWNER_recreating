@@ -16,6 +16,12 @@ from ..data.serialization import parse_owner_dataset
 from ..data.datasets.mention_detection import MentionDetectionDataset
 from ..models.mention_detection import MdBioModel
 from ..utils.pytorch import IGNORE_VALUE
+from ..utils.mlflow_helpers import (
+    log_artifacts_safe,
+    log_metrics_safe,
+    log_params_safe,
+    mlflow_run,
+)
 from ..evaluation.mention_detection import (
     convert_bio_to_entities,
     convert_document_to_entities,
@@ -65,44 +71,71 @@ class MentionDetectionTrainer(BaseTrainer):
         )
 
     def train(self) -> None:
-        train_loader = DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,   # 0 = synchrone (Windows-friendly)
-        )
-        n_steps = len(train_loader) * self.num_epochs
+        with mlflow_run('mention_detection'):
+            log_params_safe({
+                'md_plm_name': self.plm_name,
+                'md_max_len': self.max_len,
+                'md_batch_size': self.batch_size,
+                'md_num_epochs': self.num_epochs,
+                'md_learning_rate': self.learning_rate,
+                'md_device': self.device,
+            })
 
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=0, num_training_steps=n_steps,
-        )
-        # ignore_index=IGNORE_VALUE : la loss n'inclut PAS les positions à -100
-        loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE_VALUE)
-
-        for epoch in range(1, self.num_epochs + 1):
-            print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
-            self.model.train()
-            for batch in tqdm(train_loader, desc='train'):
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                labels = batch['labels'].to(self.device)
-
-                logits = self.model(input_ids, attention_mask)        # [B, T, 3]
-                # CrossEntropyLoss attend [B, C, T] et target [B, T]
-                loss = loss_fn(logits.permute(0, 2, 1), labels)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-
-            metrics = self.evaluate()
-            print(
-                f'  test → F1={metrics["f1"]:.4f} '
-                f'P={metrics["precision"]:.4f} R={metrics["recall"]:.4f} '
-                f'(TP={metrics["tp"]} FP={metrics["fp"]} FN={metrics["fn"]})'
+            train_loader = DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=0,   # 0 = synchrone (Windows-friendly)
             )
+            n_steps = len(train_loader) * self.num_epochs
+
+            optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer, num_warmup_steps=0, num_training_steps=n_steps,
+            )
+            # ignore_index=IGNORE_VALUE : la loss n'inclut PAS les positions à -100
+            loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE_VALUE)
+
+            global_step = 0
+            for epoch in range(1, self.num_epochs + 1):
+                print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
+                self.model.train()
+                epoch_loss_sum = 0.0
+                n_batches = 0
+                for batch in tqdm(train_loader, desc='train'):
+                    input_ids = batch['input_ids'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
+                    labels = batch['labels'].to(self.device)
+
+                    logits = self.model(input_ids, attention_mask)        # [B, T, 3]
+                    # CrossEntropyLoss attend [B, C, T] et target [B, T]
+                    loss = loss_fn(logits.permute(0, 2, 1), labels)
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    scheduler.step()
+
+                    epoch_loss_sum += loss.item()
+                    n_batches += 1
+                    global_step += 1
+                    log_metrics_safe({'md_train_batch_loss': loss.item()}, step=global_step)
+
+                metrics = self.evaluate()
+                print(
+                    f'  test → F1={metrics["f1"]:.4f} '
+                    f'P={metrics["precision"]:.4f} R={metrics["recall"]:.4f} '
+                    f'(TP={metrics["tp"]} FP={metrics["fp"]} FN={metrics["fn"]})'
+                )
+                log_metrics_safe({
+                    'md_train_epoch_loss': epoch_loss_sum / max(n_batches, 1),
+                    'md_test_f1': metrics['f1'],
+                    'md_test_precision': metrics['precision'],
+                    'md_test_recall': metrics['recall'],
+                    'md_test_tp': metrics['tp'],
+                    'md_test_fp': metrics['fp'],
+                    'md_test_fn': metrics['fn'],
+                }, step=epoch)
 
     def evaluate(self) -> dict[str, float]:
         self.model.eval()
@@ -199,6 +232,7 @@ class MentionDetectionTrainer(BaseTrainer):
     def save_model(self, folder: str) -> None:
         os.makedirs(folder, exist_ok=True)
         torch.save(self.model.state_dict(), f'{folder}/mention_detection.pt')
+        log_artifacts_safe(folder)
 
     def load_model(self, folder: str) -> None:
         self.model.load_state_dict(torch.load(f'{folder}/mention_detection.pt'))

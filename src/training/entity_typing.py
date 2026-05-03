@@ -19,6 +19,12 @@ from ..data.serialization import parse_owner_dataset
 from ..data.datasets.entity_typing import EntityTypingDataset
 from ..models.entity_typing import EntityEncodingModel, AutoKmeans
 from ..evaluation.entity_typing import evaluate_entity_typing
+from ..utils.mlflow_helpers import (
+    log_artifacts_safe,
+    log_metrics_safe,
+    log_params_safe,
+    mlflow_run,
+)
 from .base import BaseTrainer
 
 
@@ -115,47 +121,83 @@ class EntityTypingTrainer(BaseTrainer):
         )
 
     def train(self) -> None:
-        train_loader = DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,
-        )
-        n_steps = len(train_loader) * self.num_epochs
+        with mlflow_run('entity_typing'):
+            log_params_safe({
+                'et_plm_name': self.plm_name,
+                'et_max_len': self.max_len,
+                'et_batch_size': self.batch_size,
+                'et_num_epochs': self.num_epochs,
+                'et_learning_rate': self.learning_rate,
+                'et_margin': self.margin,
+                'et_k_min': self.k_min,
+                'et_k_max': self.k_max,
+                'et_k_step': self.k_step,
+                'et_seed': self.seed,
+                'et_template': self.template,
+                'et_device': self.device,
+            })
 
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=0, num_training_steps=n_steps,
-        )
-        loss_fn = BatchTripletMarginLoss(margin=self.margin)
-
-        # Eval avant entraînement (baseline)
-        print('\n--- Avant entraînement ---')
-        baseline = self.evaluate()
-        print(f'  AMI={baseline["ami"]:.4f} ARI={baseline["ari"]:.4f} k={baseline["k"]}')
-
-        for epoch in range(1, self.num_epochs + 1):
-            print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
-            self.model.train()
-            for batch in tqdm(train_loader, desc='train'):
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                mask_index = batch['mask_index'].to(self.device)
-                type_labels = batch['entity_type_label'].to(self.device)
-
-                embeddings = self.model(input_ids, attention_mask, mask_index)
-                loss = loss_fn(type_labels, embeddings)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-
-            metrics = self.evaluate()
-            print(
-                f'  AMI={metrics["ami"]:.4f} ARI={metrics["ari"]:.4f} '
-                f'k_trouvé={metrics["k"]} (vrai k={metrics["true_k"]})'
+            train_loader = DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=0,
             )
+            n_steps = len(train_loader) * self.num_epochs
+
+            optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer, num_warmup_steps=0, num_training_steps=n_steps,
+            )
+            loss_fn = BatchTripletMarginLoss(margin=self.margin)
+
+            # Eval avant entraînement (baseline)
+            print('\n--- Avant entraînement ---')
+            baseline = self.evaluate()
+            print(f'  AMI={baseline["ami"]:.4f} ARI={baseline["ari"]:.4f} k={baseline["k"]}')
+            log_metrics_safe({
+                'et_baseline_ami': baseline['ami'],
+                'et_baseline_ari': baseline['ari'],
+                'et_baseline_k': baseline['k'],
+            }, step=0)
+
+            global_step = 0
+            for epoch in range(1, self.num_epochs + 1):
+                print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
+                self.model.train()
+                epoch_loss_sum = 0.0
+                n_batches = 0
+                for batch in tqdm(train_loader, desc='train'):
+                    input_ids = batch['input_ids'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
+                    mask_index = batch['mask_index'].to(self.device)
+                    type_labels = batch['entity_type_label'].to(self.device)
+
+                    embeddings = self.model(input_ids, attention_mask, mask_index)
+                    loss = loss_fn(type_labels, embeddings)
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    scheduler.step()
+
+                    epoch_loss_sum += loss.item()
+                    n_batches += 1
+                    global_step += 1
+                    log_metrics_safe({'et_train_batch_loss': loss.item()}, step=global_step)
+
+                metrics = self.evaluate()
+                print(
+                    f'  AMI={metrics["ami"]:.4f} ARI={metrics["ari"]:.4f} '
+                    f'k_trouvé={metrics["k"]} (vrai k={metrics["true_k"]})'
+                )
+                log_metrics_safe({
+                    'et_train_epoch_loss': epoch_loss_sum / max(n_batches, 1),
+                    'et_test_ami': metrics['ami'],
+                    'et_test_ari': metrics['ari'],
+                    'et_test_k_found': metrics['k'],
+                    'et_test_k_true': metrics['true_k'],
+                }, step=epoch)
 
     def evaluate(self) -> dict[str, float]:
         """Compute embeddings sur le test set, fit AutoKmeans, mesure AMI/ARI."""
@@ -266,6 +308,7 @@ class EntityTypingTrainer(BaseTrainer):
     def save_model(self, folder: str) -> None:
         os.makedirs(folder, exist_ok=True)
         torch.save(self.model.state_dict(), f'{folder}/entity_typing.pt')
+        log_artifacts_safe(folder)
 
     def load_model(self, folder: str) -> None:
         self.model.load_state_dict(torch.load(f'{folder}/entity_typing.pt'))
