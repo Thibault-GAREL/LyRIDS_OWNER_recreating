@@ -1,0 +1,39 @@
+# Configuration pour Pile-NER (Universal-NER/Pile-NER-type).
+# Lien : https://huggingface.co/datasets/Universal-NER/Pile-NER-type
+#
+# Pré-requis : avoir lancé `python data/1-raw/pile_ner.py` au préalable
+# pour télécharger + sous-échantillonner + convertir au format OWNER.
+#
+# Différences principales vs ner_default.yaml (CoNLL) :
+#   - centaines de types d'entités au lieu de 3 → k_max bien plus grand
+#   - k_step=5 (et pas 1) sinon AutoKmeans/BIC explose en temps
+#   - dataset distinct → checkpoint_dir + experiment MLflow séparés
+
+data:
+  train_path: data/2-processed/pile_ner/train.json
+  test_path: data/2-processed/pile_ner/test.json
+
+mention_detection:
+  plm_name: distilbert-base-uncased
+  max_len: 128
+  batch_size: 8
+  num_epochs: 2
+  learning_rate: 2.0e-5
+
+entity_typing:
+  plm_name: bert-base-uncased
+  max_len: 128
+  batch_size: 8
+  num_epochs: 2
+  learning_rate: 2.0e-5
+  margin: 1.0
+  k_min: 10                            # Pile-NER a bien plus que 3 types
+  k_max: 100                           # à ajuster selon SAMPLE_SIZE dans pile_ner.py
+  k_step: 5                            # PAS 1 — sinon AutoKmeans devient prohibitif
+  seed: 42
+  template: "{entity} is a [MASK]. Context: {sentence}"
+
+output:
+  checkpoint_dir: outputs/models/pile_ner_checkpoint
+  mlflow_experiment: owner_pile_ner
+  mlflow_run_name: pile_ner_full
