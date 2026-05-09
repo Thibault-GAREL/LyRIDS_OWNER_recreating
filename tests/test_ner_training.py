@@ -8,7 +8,9 @@ Si CUDA out of memory, baisse batch_size dans le YAML.
 # python -m tests.test_ner_training
 # python -m tests.test_ner_training configs/ner_default.yaml
 
+import shutil
 import sys
+from pathlib import Path
 
 import mlflow
 
@@ -46,5 +48,9 @@ with mlflow.start_run(run_name=config['output']['mlflow_run_name']):
     print(f'AMI={metrics["ami"]:.4f}  ARI={metrics["ari"]:.4f}')
     print(f'n_truth={metrics["n_truth"]}  n_pred_md={metrics["n_pred"]}')
 
-    ner.save_model(config['output']['checkpoint_dir'])
-    print(f"\n✓ Modèles sauvegardés dans {config['output']['checkpoint_dir']}/")
+    checkpoint_dir = config['output']['checkpoint_dir']
+    ner.save_model(checkpoint_dir)
+    # On copie le YAML à côté des poids → checkpoint auto-suffisant pour
+    # ré-instancier les trainers à l'identique lors d'une éval cross-domain.
+    shutil.copy(config_path, Path(checkpoint_dir) / 'config.yaml')
+    print(f"\n✓ Modèles + config sauvegardés dans {checkpoint_dir}/")
