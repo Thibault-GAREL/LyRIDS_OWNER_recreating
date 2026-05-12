@@ -1,6 +1,7 @@
 # MLflow
 mlruns/
 mlartifacts/
+mlflow.db
 
 # Données : on ignore le contenu, on garde la structure via .gitkeep
 # Exception : les scripts .py à la racine de chaque dossier data/ (download/preprocess)
