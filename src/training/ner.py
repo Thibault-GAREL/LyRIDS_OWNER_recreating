@@ -32,11 +32,16 @@ class NerTrainer(BaseTrainer):
         self.mention_detection.load_data(training)
         self.entity_typing.load_data(training)
 
-    def train(self) -> None:
+    def train(self, checkpoint_dir: str | None = None) -> None:
+        """Entraîne MD puis ET. Si `checkpoint_dir` est fourni, chaque sous-trainer
+        sauve son meilleur epoch en cours de route (best F1 pour MD, best AMI pour ET)
+        et recharge ces poids à la fin — l'éval end-to-end utilise donc le meilleur
+        modèle, pas le dernier.
+        """
         print('\n========== Training Mention Detection ==========')
-        self.mention_detection.train()
+        self.mention_detection.train(checkpoint_dir=checkpoint_dir)
         print('\n========== Training Entity Typing ==========')
-        self.entity_typing.train()
+        self.entity_typing.train(checkpoint_dir=checkpoint_dir)
 
     def evaluate(self) -> dict[str, float]:
         """Évaluation end-to-end : MD prédit positions, ET cluster, AMI/ARI sur l'ensemble."""

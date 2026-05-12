@@ -1,0 +1,46 @@
+# Configuration : réutilise un MD pré-entraîné et entraîne uniquement ET
+# sur Pile-NER (1 epoch).
+#
+# ⚠️ À utiliser AVEC `tests/test_ner_training_et_only.py`, PAS avec
+# `tests/test_ner_training.py` (qui ignorerait la section `pretrained`
+# et ré-entraînerait MD from scratch).
+#
+# Lancement :
+#   python -m tests.test_ner_training_et_only configs/pile_ner_et_only.yaml
+
+data:
+  train_path: data/2-processed/pile_ner/train.json
+  test_path: data/2-processed/pile_ner/test.json
+
+# Section LUE par le script ET-only pour charger les poids MD déjà entraînés.
+# Doit pointer vers un dossier contenant `mention_detection.pt`.
+pretrained:
+  mention_detection_dir: outputs/models/ner_checkpoint
+
+mention_detection:
+  # ⚠️ Ces hyperparams DOIVENT matcher ceux utilisés à l'entraînement du
+  # checkpoint chargé via `pretrained.mention_detection_dir`, sinon
+  # `load_state_dict` échoue en mismatch d'architecture.
+  plm_name: distilbert-base-uncased
+  max_len: 128
+  batch_size: 8
+  num_epochs: 0           # ignoré : MD n'est PAS ré-entraîné
+  learning_rate: 2.0e-5   # ignoré
+
+entity_typing:
+  plm_name: bert-base-uncased
+  max_len: 128
+  batch_size: 8
+  num_epochs: 1           # ← 1 epoch comme demandé
+  learning_rate: 2.0e-5
+  margin: 1.0
+  k_min: 10
+  k_max: 100
+  k_step: 5
+  seed: 42
+  template: "{entity} is a [MASK]. Context: {sentence}"
+
+output:
+  checkpoint_dir: outputs/models/pile_ner_et_only_checkpoint
+  mlflow_experiment: owner_pile_ner
+  mlflow_run_name: pile_ner_et_only

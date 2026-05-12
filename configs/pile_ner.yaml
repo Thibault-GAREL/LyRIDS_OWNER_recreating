@@ -17,14 +17,14 @@ mention_detection:
   plm_name: distilbert-base-uncased
   max_len: 128
   batch_size: 8
-  num_epochs: 2
+  num_epochs: 4
   learning_rate: 2.0e-5
 
 entity_typing:
   plm_name: bert-base-uncased
   max_len: 128
   batch_size: 8
-  num_epochs: 2
+  num_epochs: 1
   learning_rate: 2.0e-5
   margin: 1.0
   k_min: 10                            # Pile-NER a bien plus que 3 types

@@ -120,7 +120,10 @@ class EntityTypingTrainer(BaseTrainer):
             template=self.template,
         )
 
-    def train(self) -> None:
+    def train(self, checkpoint_dir: str | None = None) -> None:
+        """Entraîne ET. Si `checkpoint_dir` est fourni, sauve le meilleur epoch
+        (au sens de l'AMI test) dans ce dossier et le recharge à la fin de l'entraînement.
+        """
         with mlflow_run('entity_typing'):
             log_params_safe({
                 'et_plm_name': self.plm_name,
@@ -135,6 +138,7 @@ class EntityTypingTrainer(BaseTrainer):
                 'et_seed': self.seed,
                 'et_template': self.template,
                 'et_device': self.device,
+                'et_best_checkpoint_dir': checkpoint_dir or '',
             })
 
             train_loader = DataLoader(
@@ -161,6 +165,8 @@ class EntityTypingTrainer(BaseTrainer):
                 'et_baseline_k': baseline['k'],
             }, step=0)
 
+            best_ami = -1.0
+            best_epoch = 0
             global_step = 0
             for epoch in range(1, self.num_epochs + 1):
                 print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
@@ -198,6 +204,25 @@ class EntityTypingTrainer(BaseTrainer):
                     'et_test_k_found': metrics['k'],
                     'et_test_k_true': metrics['true_k'],
                 }, step=epoch)
+
+                if checkpoint_dir is not None and metrics['ami'] > best_ami:
+                    best_ami = metrics['ami']
+                    best_epoch = epoch
+                    os.makedirs(checkpoint_dir, exist_ok=True)
+                    torch.save(
+                        self.model.state_dict(),
+                        f'{checkpoint_dir}/entity_typing.pt',
+                    )
+                    print(f'  ★ best so far (epoch {best_epoch}, AMI={best_ami:.4f}) → {checkpoint_dir}/entity_typing.pt')
+                    log_metrics_safe({
+                        'et_best_ami': best_ami,
+                        'et_best_epoch': best_epoch,
+                    }, step=epoch)
+
+            # Reload des meilleurs poids pour que la suite (eval end-to-end) en bénéficie
+            if checkpoint_dir is not None and best_epoch > 0:
+                print(f'\n→ Reload du meilleur ET : epoch {best_epoch}, AMI={best_ami:.4f}')
+                self.load_model(checkpoint_dir)
 
     def evaluate(self) -> dict[str, float]:
         """Compute embeddings sur le test set, fit AutoKmeans, mesure AMI/ARI."""

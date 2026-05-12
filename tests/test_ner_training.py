@@ -41,16 +41,21 @@ with mlflow.start_run(run_name=config['output']['mlflow_run_name']):
 
     ner = NerTrainer(md, et)
     ner.load_data(training=True)
-    ner.train()
+
+    checkpoint_dir = config['output']['checkpoint_dir']
+    # Best-checkpoint : pendant train, MD sauve le meilleur epoch (F1) et ET le
+    # meilleur (AMI), puis reloade ces poids — l'éval ci-dessous utilise donc
+    # les meilleurs modèles, pas ceux du dernier epoch.
+    ner.train(checkpoint_dir=checkpoint_dir)
 
     metrics = ner.evaluate()
     print("\n========== NER end-to-end ==========")
     print(f'AMI={metrics["ami"]:.4f}  ARI={metrics["ari"]:.4f}')
     print(f'n_truth={metrics["n_truth"]}  n_pred_md={metrics["n_pred"]}')
 
-    checkpoint_dir = config['output']['checkpoint_dir']
+    # save_model écrit les poids actuels (= meilleurs après reload) et log les
+    # artefacts dans MLflow. Puis on copie le YAML pour que le dossier soit
+    # auto-suffisant lors d'une éval cross-domain ultérieure.
     ner.save_model(checkpoint_dir)
-    # On copie le YAML à côté des poids → checkpoint auto-suffisant pour
-    # ré-instancier les trainers à l'identique lors d'une éval cross-domain.
     shutil.copy(config_path, Path(checkpoint_dir) / 'config.yaml')
     print(f"\n✓ Modèles + config sauvegardés dans {checkpoint_dir}/")

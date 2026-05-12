@@ -70,7 +70,11 @@ class MentionDetectionTrainer(BaseTrainer):
             max_len=self.max_len,
         )
 
-    def train(self) -> None:
+    def train(self, checkpoint_dir: str | None = None) -> None:
+        """Entraîne MD. Si `checkpoint_dir` est fourni, sauve le meilleur epoch
+        (au sens du F1 test) dans ce dossier et le recharge à la fin de l'entraînement
+        — la post-évaluation utilise donc les poids du meilleur epoch, pas du dernier.
+        """
         with mlflow_run('mention_detection'):
             log_params_safe({
                 'md_plm_name': self.plm_name,
@@ -79,6 +83,7 @@ class MentionDetectionTrainer(BaseTrainer):
                 'md_num_epochs': self.num_epochs,
                 'md_learning_rate': self.learning_rate,
                 'md_device': self.device,
+                'md_best_checkpoint_dir': checkpoint_dir or '',
             })
 
             train_loader = DataLoader(
@@ -96,6 +101,8 @@ class MentionDetectionTrainer(BaseTrainer):
             # ignore_index=IGNORE_VALUE : la loss n'inclut PAS les positions à -100
             loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE_VALUE)
 
+            best_f1 = -1.0
+            best_epoch = 0
             global_step = 0
             for epoch in range(1, self.num_epochs + 1):
                 print(f'\n=== Epoch {epoch}/{self.num_epochs} ===')
@@ -136,6 +143,25 @@ class MentionDetectionTrainer(BaseTrainer):
                     'md_test_fp': metrics['fp'],
                     'md_test_fn': metrics['fn'],
                 }, step=epoch)
+
+                if checkpoint_dir is not None and metrics['f1'] > best_f1:
+                    best_f1 = metrics['f1']
+                    best_epoch = epoch
+                    os.makedirs(checkpoint_dir, exist_ok=True)
+                    torch.save(
+                        self.model.state_dict(),
+                        f'{checkpoint_dir}/mention_detection.pt',
+                    )
+                    print(f'  ★ best so far (epoch {best_epoch}, F1={best_f1:.4f}) → {checkpoint_dir}/mention_detection.pt')
+                    log_metrics_safe({
+                        'md_best_f1': best_f1,
+                        'md_best_epoch': best_epoch,
+                    }, step=epoch)
+
+            # Reload des meilleurs poids pour que la suite (eval end-to-end) en bénéficie
+            if checkpoint_dir is not None and best_epoch > 0:
+                print(f'\n→ Reload du meilleur MD : epoch {best_epoch}, F1={best_f1:.4f}')
+                self.load_model(checkpoint_dir)
 
     def evaluate(self) -> dict[str, float]:
         self.model.eval()
